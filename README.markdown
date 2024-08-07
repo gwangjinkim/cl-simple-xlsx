@@ -1,0 +1,17 @@
+# Cl-Simple-Xlsx - Read-write .xlsx files in Common Lisp.
+
+## Usage
+
+## Installation
+
+## Author
+
+* Gwang-Jin Kim (gwang.jin.kim.phd@gmail.com)
+
+## Copyright
+
+Copyright (c) 2024 Gwang-Jin Kim (gwang.jin.kim.phd@gmail.com)
+
+## License
+
+Licensed under the MIT License.
