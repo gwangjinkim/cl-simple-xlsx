@@ -9,7 +9,9 @@
   :components ((:module "src"
                 :components
                 ((:file "main"))))
-  :description "Read-write .xlsx files in Common Lisp."
+  :description "Read-write .xlsx files in Common Lisp. Translation of the racket-simple-xlsx package
+source https://github.com/simmone/racket-simple-xlsx by Chen Xiao. 
+Translated (ongoing) by Gwang-Jin Kim <gwang.jin.kim.phd@gmail.com>"
   :in-order-to ((test-op (test-op "cl-simple-xlsx/tests"))))
 
 (defsystem "cl-simple-xlsx/tests"
