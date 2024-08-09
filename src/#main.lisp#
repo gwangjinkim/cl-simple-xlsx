@@ -285,44 +285,11 @@
     (with-open-file (test-port test-file-path :direction :input)
       (check-lines-p expected-port test-port))))
 
-;; (defun format-w3cdtf (the-date)
-;;   "Format a date object into W3C DTF string format (e.g., 2014-12-15T13:24:27+08:00)."
-;;   (local-time:format-timestring "~Y-~m-~dT~H:~M:~S~z" the-date nil))
-
-(defun timezone-offset (timestamp)
-  "Calculate the timezone offset in seconds for the given timestamp."
-  (let* ((local-time (local-time:encode-timestamp 
-                      (local-time:timestamp-second timestamp)
-                      (local-time:timestamp-minute timestamp)
-                      (local-time:timestamp-hour timestamp)
-                      (local-time:timestamp-day timestamp)
-                      (local-time:timestamp-month timestamp)
-                      (local-time:timestamp-year timestamp)
-                      :timezone (local-time:timestamp-timezone timestamp)))
-         (utc-time (local-time:encode-timestamp 
-                    (local-time:timestamp-second timestamp)
-                    (local-time:timestamp-minute timestamp)
-                    (local-time:timestamp-hour timestamp)
-                    (local-time:timestamp-day timestamp)
-                    (local-time:timestamp-month timestamp)
-                    (local-time:timestamp-year timestamp)
-                    :timezone (local-time:find-timezone-by-location-name "UTC"))))
-    (- (local-time:timestamp-to-unix local-time)
-       (local-time:timestamp-to-unix utc-time))))
-
 (defun format-w3cdtf (the-date)
   "Format a date object into W3C DTF string format (e.g., 2014-12-15T13:24:27+08:00)."
-  (let* ((year (format nil "~4,'0d" (local-time:timestamp-year the-date)))
-         (month (format nil "~2,'0d" (local-time:timestamp-month the-date)))
-         (day (format nil "~2,'0d" (local-time:timestamp-day the-date)))
-         (hour (format nil "~2,'0d" (local-time:timestamp-hour the-date)))
-         (minute (format nil "~2,'0d" (local-time:timestamp-minute the-date)))
-         (second (format nil "~2,'0d" (local-time:timestamp-second the-date)))
-         (tz-offset (timezone-offset the-date))  ; in seconds
-         (tz-sign (if (>= tz-offset 0) "+" "-"))
-         (tz-hours (format nil "~2,'0d" (floor (/ (abs tz-offset) 3600)))))
-    (format nil "~a-~a-~aT~a:~a:~a~a~a:00"
-            year month day hour minute second tz-sign tz-hours)))
+  (local-time:format-timestring "~Y-~m-~dT~H:~M:~S~z" the-date nil))
+
+
 
 (defun zip-xlsx (zip-file content-dir)
   "Create a zip archive from the content directory using David Lichteblau's zip library."

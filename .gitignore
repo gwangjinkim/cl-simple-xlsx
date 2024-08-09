@@ -7,3 +7,6 @@
 *.x86f
 *~
 .#*
+
+# Racket files
+*.rkt
