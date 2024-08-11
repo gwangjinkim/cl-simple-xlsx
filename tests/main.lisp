@@ -1,4 +1,5 @@
 (ql:quickload :uiop)
+(ql:quickload :asdf)
 (ql:quickload :cl-simple-xlsx)
 (ql:quickload :cl-fast-xml)
 (ql:quickload :cl-fad)
@@ -326,37 +327,44 @@
 
 
 ;; Define paths
-(defparameter *zip-xlsx-temp-directory* "test-directory/")
-(defparameter *content-type-file* (merge-pathnames "[Content_Types].xml" *zip-xlsx-temp-directory*))
+(defparameter *zip-xlsx-temp-directory* (asdf:system-relative-pathname "cl-simple-xlsx" "test/test-directory/"))
+(defparameter *content-type-file* (make-pathname :directory (pathname-directory *zip-xlsx-temp-directory*)
+						 :name "[Content_Types]"
+						 :type "xml"))
 (defparameter *rels-directory* (merge-pathnames "_rels/" *zip-xlsx-temp-directory*))
-(defparameter *doc-props-directory* (merge-pathnames "docProps/" *zip-xlsx-temp-directory*))
-(defparameter *xl-directory* (merge-pathnames "xl/" *zip-xlsx-temp-directory*))
+(defparameter *doc-props-directory* (merge-pathnames"docProps/"  *zip-xlsx-temp-directory*))
+(defparameter *xl-directory* (merge-pathnames "xl/"  *zip-xlsx-temp-directory*))
 (defparameter *zip-xlsx-file* "test.xlsx")
 
 (test test-format-w3cdtf
-  (is (string= (local-time:format-timestring (local-time:encode-timestamp 996159076 44 17 13 2 1 2015) 
-                                             "%Y-%m-%dT%H:%M:%S%z") 
-               "2015-01-02T13:17:44+08:00")))
+  (let* ((timestamp (local-time:encode-timestamp 996159076 44 17 13 2 1 2015))
+	 (offset-string (local-time:format-timestring nil timestamp :format '(:gmt-offset))))
+    (is (string= (format-w3cdtf (local-time:encode-timestamp 996159076 44 17 13 2 1 2015)) 
+		 (format nil "~a~a" "2015-01-02T13:17:44" offset-string)))))
 
-(test test-date->oadate
+(test test-date->oa-date-number
   (let ((date1 (local-time:encode-timestamp 0 0 0 0 17 9 2018))
         (date2 (local-time:encode-timestamp 0 0 0 0 16 9 2018)))
     (is (= (date->oa-date-number date1) 43360))
     (is (= (date->oa-date-number date2) 43359))))
 
-(test test-oadate->date
-  (let ((expected-date1 (local-time:encode-timestamp 0 0 0 0 18 9 2018))
-        (expected-date2 (local-time:encode-timestamp 0 0 0 0 17 9 2018)))
-    (is (equal (oa-date-number->date 43360) expected-date1))
-    (is (equal (oa-date-number->date 43359) expected-date2))
-    (is (equal (oa-date-number->date 43359.1212121) expected-date2))))
+(defun timestamp-equal (x y)
+  (string= (format nil "~a" x) (format nil "~a" y)))
+
+(test test-oa-date-number->date
+  (let ((expected-date1 (local-time:encode-timestamp 0 0 0 0 18 9 2018 :timezone local-time:+gmt-zone+))
+        (expected-date2 (local-time:encode-timestamp 0 0 0 0 17 9 2018 :timezone local-time:+gmt-zone+)))
+    (is (timestamp-equal  (oa-date-number->date 43360 :local-time-p nil) expected-date1))
+    (is (timestamp-equal (oa-date-number->date 43359 :local-time-p nil) expected-date2))
+    (is (timestamp-equal  (oa-date-number->date 43359.1212121 :local-time-p nil ) expected-date2))))
+
 
 (test test-zip-and-unzip
   (unwind-protect
       (progn
         ;; Setup phase
         (ensure-directories-exist *zip-xlsx-temp-directory*)
-        (with-open-file (stream (ensure-directories-exist *content-type-file*)
+        (with-open-file (stream *content-type-file*
                                 :direction :output
                                 :if-does-not-exist :create
                                 :if-exists :supersede)
@@ -365,9 +373,10 @@
         (ensure-directories-exist *xl-directory*)
         (ensure-directories-exist *doc-props-directory*)
         (zip-xlsx *zip-xlsx-file* *zip-xlsx-temp-directory*)
+	;; (cl-fad:delete-directory-and-files *zip-xlsx-temp-directory*)
         
         ;; Test phase
-        (unzip-xlsx *zip-xlsx-file* *zip-xlsx-temp-directory*)
+        (unzip-xlsx *zip-xlsx-file* (format nil "~a" *zip-xlsx-temp-directory*))
         (is (probe-file *content-type-file*))
         (is (probe-file *rels-directory*))
         (is (probe-file *doc-props-directory*))

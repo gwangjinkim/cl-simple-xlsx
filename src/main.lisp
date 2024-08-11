@@ -2,6 +2,7 @@
 (ql:quickload :cl-fast-xml)
 (ql:quickload :cl-fad)
 (ql:quickload :local-time)
+(ql:quickload :uiop)
 (ql:quickload :zip)
 
 (defpackage cl-simple-xlsx
@@ -32,7 +33,16 @@
 	   #:maintain-sheet-data-consistency
 	   #:check-lines-p
 	   #:check-lines-files-p
-	   #:port->lines))
+	   #:port->lines
+	   #:format-w3cdtf
+	   #:zip-xlsx
+	   #:unzip-xlsx
+	   #:date->oa-date-number
+	   #:oa-date-number->date
+	   #:path-string-make
+	   #:get-time-zone
+	   ;; #:debug-unzip
+	   ))
 
 (in-package :cl-simple-xlsx)
 
@@ -285,50 +295,28 @@
     (with-open-file (test-port test-file-path :direction :input)
       (check-lines-p expected-port test-port))))
 
-;; (defun format-w3cdtf (the-date)
-;;   "Format a date object into W3C DTF string format (e.g., 2014-12-15T13:24:27+08:00)."
-;;   (local-time:format-timestring "~Y-~m-~dT~H:~M:~S~z" the-date nil))
-
-(defun timezone-offset (timestamp)
-  "Calculate the timezone offset in seconds for the given timestamp."
-  (let* ((local-time (local-time:encode-timestamp 
-                      (local-time:timestamp-second timestamp)
-                      (local-time:timestamp-minute timestamp)
-                      (local-time:timestamp-hour timestamp)
-                      (local-time:timestamp-day timestamp)
-                      (local-time:timestamp-month timestamp)
-                      (local-time:timestamp-year timestamp)
-                      :timezone (local-time:timestamp-timezone timestamp)))
-         (utc-time (local-time:encode-timestamp 
-                    (local-time:timestamp-second timestamp)
-                    (local-time:timestamp-minute timestamp)
-                    (local-time:timestamp-hour timestamp)
-                    (local-time:timestamp-day timestamp)
-                    (local-time:timestamp-month timestamp)
-                    (local-time:timestamp-year timestamp)
-                    :timezone (local-time:find-timezone-by-location-name "UTC"))))
-    (- (local-time:timestamp-to-unix local-time)
-       (local-time:timestamp-to-unix utc-time))))
-
 (defun format-w3cdtf (the-date)
   "Format a date object into W3C DTF string format (e.g., 2014-12-15T13:24:27+08:00)."
-  (let* ((year (format nil "~4,'0d" (local-time:timestamp-year the-date)))
-         (month (format nil "~2,'0d" (local-time:timestamp-month the-date)))
-         (day (format nil "~2,'0d" (local-time:timestamp-day the-date)))
-         (hour (format nil "~2,'0d" (local-time:timestamp-hour the-date)))
-         (minute (format nil "~2,'0d" (local-time:timestamp-minute the-date)))
-         (second (format nil "~2,'0d" (local-time:timestamp-second the-date)))
-         (tz-offset (timezone-offset the-date))  ; in seconds
-         (tz-sign (if (>= tz-offset 0) "+" "-"))
-         (tz-hours (format nil "~2,'0d" (floor (/ (abs tz-offset) 3600)))))
-    (format nil "~a-~a-~aT~a:~a:~a~a~a:00"
-            year month day hour minute second tz-sign tz-hours)))
+  (local-time:format-timestring "~Y-~m-~dT~H:~M:~S~z" the-date nil))
 
-(defun zip-xlsx (zip-file content-dir)
+(defun format-w3cdtf (the-date)
+  "Format a date object into W3C DTF string format (e.g., )."
+  (local-time:format-timestring nil the-date :format
+				'((:year 4) #\-
+				  (:month 2) #\-
+				  (:day 2) #\T
+				  (:hour 2) #\:
+				  (:min 2) #\:
+				  (:sec 2) 
+				  :gmt-offset
+				  )))
+;; (:msec 4)
+
+(defun zip-xlsx (zip-file content-dir &optional (content-file-name "\\[Content_Types].xml"))
   "Create a zip archive from the content directory using David Lichteblau's zip library."
   (zip:with-output-to-zipfile (zipwriter zip-file :if-exists :supersede)
-    (zip:write-zipentry zipwriter "[Content_Types].xml"
-                        (merge-pathnames "[Content_Types].xml" content-dir))
+    (zip:write-zipentry zipwriter content-file-name
+                        (merge-pathnames content-file-name content-dir))
     (dolist (dir '("_rels/" "docProps/" "xl/"))
       (cl-fad:walk-directory (merge-pathnames dir content-dir)
                              (lambda (file)
@@ -336,18 +324,248 @@
                                                    (subseq (namestring (merge-pathnames file content-dir)) (length content-dir))
                                                    file))))))
 
+
+;;;; my correction functions only valid for SBCL
+
+(defun path-to-string (path)
+  "Convert Path to plain string expanding `~` correctly."
+  (let* ((path-string (format nil "~a" path))
+	 (pos (position #\? path-string)))
+    (if (and pos (zerop pos))
+	(concatenate 'string (uiop:getenv "HOME") (subseq path-string 1))
+        path-string)))
+
+(Defun path-string-directory (path &key (sep #\/))
+  "Return parent directory string ending with `/`."
+  (let* ((path-string (path-to-string path))
+	 (pos (position sep (reverse path-string))))
+    (if pos
+	(subseq path-string 0 (- (length path-string) (position sep (reverse path-string))))
+	(uiop/os:getcwd)))) ;; current working directory
+
+(defun path-string-last (path &key (sep #\/))
+  "Return last element of a path-string - directory or file."
+  (let* ((path-string (path-to-string path))
+	 (pos (position sep (reverse path-string))))
+    (if pos
+	(subseq path-string (- (length path-string) (position sep (reverse path-string))))
+	path-string)))
+
+(defun path-string-name (path &key (sep #\/))
+  "Return name component of filename (before last dot)."
+  (let ((last-part (path-string-last path :sep sep))
+        (sep-type #\.))
+    (subseq last-part 0 (- (length last-part) (position sep-type (reverse last-part)) 1))))
+
+(defun path-string-type (path &key (sep #\/))
+  "Return type portion of filename (after last dot)."
+  (let ((last-part (path-string-last path :sep sep))
+        (sep-type #\.))
+    (subseq last-part (- (length last-part) (position sep-type (reverse last-part))))))
+
+(defun path-string-make (path &key (directory nil) (sep #\/))
+  "Return corrected path object of a path or path string by treating brackets as plain
+     text."
+  (make-pathname :directory (or directory (path-string-directory path :sep sep))
+                 :name (path-string-name path :sep sep)
+                 :type (path-string-type path :sep sep)))
+
+#|
+(defun create-test-file (path &key (text "<H1/>"))
+  "If this works without error, square brackets are treated correctly by the system."
+  (with-open-file (stream (ensure-directories-exist path)
+                          :direction :output
+                          :if-does-not-exist :create
+                          :if-exists :supersede)
+    (format stream "~a" text)))
+|#
+
+
+;;;; This is part of zip package which I need to call to correct the unzip function
+
+(defun %zipfile-entry-contents (entry stream)
+  (zip::with-latin1 ()
+    (let ((s (zip::zipfile-entry-stream entry))
+	  header)
+      (file-position s (zip::zipfile-entry-offset entry))
+      (setf header (zip::make-local-header s))
+      (assert (= (zip::file/signature header) #x04034b50))
+      (file-position s (+ (zip::file-position s)
+			  (zip::file/name-length header)
+			  (zip::file/extra-length header)))
+      (let ((in (make-instance 'zip::truncating-stream
+			       :input-handle s
+			       :size (zip::zipfile-entry-compressed-size entry)))
+	    (outbuf nil)
+	    out)
+	(if stream
+	    (setf out stream)
+	    (setf outbuf (zip::make-byte-array (zip::zipfile-entry-size entry))
+		  out (zip::make-buffer-output-stream outbuf)))
+	(ecase (zip::file/method header)
+	  (0 (zip::store in out))
+	  (8 (zip::inflate in out)))
+	outbuf))))
+
+(defun %%zipfile-entry-contents (entry &optional stream)
+  (if (pathnamep stream)
+      (with-open-file (s (path-string-make stream)
+			 :direction :output
+			 :if-exists :supersede
+                         :element-type '(unsigned-byte 8))
+	(%zipfile-entry-contents entry s))
+      (%zipfile-entry-contents entry stream)))
+
+
+(defun better-unzip (pathname target-directory &key (if-exists :error) verbose)
+  ;; <Xof> "When reading[1] the value of any pathname component, conforming
+  ;;       programs should be prepared for the value to be :unspecific."
+  (when (set-difference (list (pathname-name target-directory)
+                              (pathname-type target-directory))
+                        '(nil :unspecific))
+    (error "pathname not a directory, lacks trailing slash?"))
+  (zip:with-zipfile (zip pathname)
+    (zip:do-zipfile-entries (name entry zip)
+      (let ((filename (path-string-make name :directory target-directory)))
+        (ensure-directories-exist filename)
+        (unless (char= (elt name (1- (length name))) #\/)
+          (ecase verbose
+            ((nil))
+            ((t) (write-string name) (terpri))
+            (:dots (write-char #\.)))
+          (force-output)
+          (with-open-file
+              (s filename :direction :output :if-exists if-exists
+               :element-type '(unsigned-byte 8))
+            (%%zipfile-entry-contents entry s)))))))
+
+#|
+(defun debug-unzip (pathname target-directory &key (if-exists :error) verbose)
+  (when (set-difference (list (pathname-name target-directory)
+			      (pathname-type target-directory))
+			'(nil :unspecific))
+    (error "pathname not a directory, lacks trailing slash?"))
+  (let ((filenames)
+	(entries))
+    (zip:with-zipfile (zip pathname)
+      (zip:do-zipfile-entries (name entry zip)
+	(let ((filename name))
+	  (push filename filenames)
+	  (push entry entries)))
+      (list filenames entries))))
+
+("docProps/app.xml" "docProps/core.xml" "xl/sharedStrings.xml" "xl/styles.xml"
+ "xl/theme/theme1.xml" "xl/worksheets/sheet2.xml" "xl/worksheets/sheet1.xml"
+ "xl/_rels/workbook.xml.rels" "xl/workbook.xml" "_rels/.rels"
+"[Content_Types].xml")
+
+This is what name is bearing in this loop!
+|#
+
+;;;; Now, unzip can be called.
+
 (defun unzip-xlsx (zip-file content-dir)
   "Unzip a zip archive into the content directory using David Lichteblau's zip library."
-  (zip:unzip zip-file content-dir :if-exists :error))
+  (better-unzip zip-file content-dir :if-exists :supersede))
 
-(defun date->oa-date-number (t-date)
+#|
+
+This corrected unzip corrects with the path-string functions
+especially path-string-make the mis-interpretation of [ ] squared brackets
+through the Common Lisp pathname system.
+
+By using (format nil "~a" path) it treats pathnames as plain strings.
+The danger is of course that the separator (sep #\/) will change in other systems.
+thus these functions can pass a different separator anytime.
+the separator for name and type part of a filename stays #\. .
+
+By entering extra :directory key argument, one can change the parent directory
+when generating via path-string-make.
+
+In case the entire path is just a filename, path-string-directory will return
+the current working directory (assuming relative path).
+path-string-name and path-string-type will still work on path-string-last, since this will just return the entire path's string.
+
+By applying (path-string-make on the `name` variable of the `zip:do-zipfile-entries` macro, we can avoid that the square brackets get interepreted.
+
+|#
+
+
+
+(defun date->oa-date-number (t-date &key (local-time-p t))
   "Convert a date to an OA date number."
-  (let* ((epoch (local-time:encode-timestamp 0 0 0 0 30 12 1899 :timezone :utc))
+  (let* ((epoch (local-time:encode-timestamp 0 0 0 0 30 12 1899
+					     :timezone (if local-time-p
+							   local-time:*default-timezone*
+							   local-time:+utc-zone+)))
          (date-seconds (local-time:timestamp-to-unix t-date)))
     (floor (+ (/ (- date-seconds (local-time:timestamp-to-unix epoch)) 86400.0) 1.0))))
 
-(defun oa-date-number->date (oa-date-number)
-  "Convert an OA date number to a Common Lisp date."
-  (let* ((epoch (local-time:encode-timestamp 0 0 0 0 30 12 1899 :timezone :utc))
-         (date-seconds (+ (local-time:timestamp-to-unix epoch) (* oa-date-number 86400.0))))
-    (local-time:unix-to-timestamp date-seconds)))
+;; (defun oa-date-number->date (oa-date-number &key (local-time-p t))
+;;   "Convert an OA date number to a Common Lisp date."
+;;   (let* ((epoch (local-time:encode-timestamp 0 0 0 0 30 12 1899
+;; 					     :timezone (if local-time-p
+;; 							   local-time:*default-timezone*
+;; 							   local-time:+gmt-zone+)))
+;;          (date-seconds (+ (local-time:timestamp-to-unix epoch)
+;; 				 (* (floor oa-date-number)
+;; 				    local-time:+seconds-per-day+))))
+;;     (local-time:unix-to-timestamp date-seconds)))
+
+(defun oa-date-number->date (oa-date-number &key (local-time-p t))
+  "Convert an Excel OA date number to a Common Lisp timestamp using the local-time package."
+  (let* ((epoch (local-time:encode-timestamp 0 0 0 0 30 12 1899
+                                             :timezone (if local-time-p
+                                                           local-time:*default-timezone*
+                                                           local-time:+gmt-zone+)))
+         (days (floor oa-date-number))
+         (fractional-day (- oa-date-number days))
+         (seconds (local-time:timestamp-to-unix epoch))
+         (date-seconds (+ seconds (* days local-time:+seconds-per-day+)
+                          (round (* fractional-day local-time:+seconds-per-day+))))
+         (timestamp (local-time:unix-to-timestamp date-seconds)))
+    timestamp))
+
+;; no need to calculate to seconds, because we can use
+;; local-time:timestamp+ or local-time:timestamp- directly!
+
+;; timezone
+;; (local-time:all-timezones-matching-subzone "CEST")
+;; the author very likely used "CST" china standard time which is +08:00
+
+(defun get-timezone (&optional (timezone-name "GMT"))
+  "Given a timezone-name, return the first of all matching zones."
+  (if (string= timezone-name "UTC")
+      local-time::+gmt-zone+
+      (first (local-time:all-timezones-matching-subzone timezone-name))))
+
+
+#|
+the original Racket code:
+
+(define (date->oa_date_number t_date [local_time? #t])
+  (let ([epoch (* -1 (find-seconds 0 0 0 30 12 1899 local_time?))]
+        [date_seconds (date->seconds t_date local_time?)])
+    (inexact->exact (floor (* (/ (+ date_seconds epoch) 86400000) 1000)))))
+
+(define (oa_date_number->date oa_date_number [local_time? #t])
+  (let* ([epoch (* -1 (find-seconds 0 0 0 30 12 1899 local_time?))]
+         [date_seconds
+          (inexact->exact (floor (- (* (/ (floor oa_date_number) 1000) 86400000) epoch)))]
+         [actual_date (seconds->date (+ date_seconds (* 24 60 60)) local_time?)])
+(seconds->date (find-seconds 0 0 0 (date-day actual_date) (date-month actual_date) (date-year actual_date) local_time?))))
+
+|#
+
+(defun oa-date-number->date (oa-date-number &key (local-time-p t))
+  (let* ((epoch (local-time:timestamp-to-unix
+		 (local-time:encode-timestamp 0 0 0 0 30 12 1899
+					      :timezone (if local-time-p
+							    local-time:*default-timezone*
+							    local-time:+gmt-zone+))))
+	 (date-seconds (rationalize (floor (+ (* (/ (floor oa-date-number) 1000) 86400000)
+					      epoch))))
+	 (actual-date (local-time:unix-to-timestamp
+		       (+ date-seconds local-time:+seconds-per-day+))))
+    actual-date))
+								    
