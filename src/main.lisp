@@ -535,7 +535,7 @@ By applying (path-string-make on the `name` variable of the `zip:do-zipfile-entr
 
 (defun get-timezone (&optional (timezone-name "GMT"))
   "Given a timezone-name, return the first of all matching zones."
-  (if (string= timezone-name "UTC")
+  (if (string= timezone-name "GMT")
       local-time::+gmt-zone+
       (first (local-time:all-timezones-matching-subzone timezone-name))))
 
@@ -569,3 +569,5 @@ the original Racket code:
 		       (+ date-seconds local-time:+seconds-per-day+))))
     actual-date))
 								    
+;; or one could offer to enter :timezone manually where `get-timezone` would be a help
+
