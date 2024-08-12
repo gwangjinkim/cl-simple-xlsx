@@ -873,6 +873,121 @@ ok setf-ing new-obj to old-obj would not be a real copy therefore looping is nec
 	(uni-font-style-map (make-hash-table :test 'equalp)))
 
     (loop for sheet-style-obj in (styles-sheet-style-list *styles*)
-	  do (loop for styles in `(,@(sheet-style-row->style-map sheet-style-obj)
+	  do (loop for style in `(,@(alexandria:hash-table-values (sheet-style-row->style-map sheet-style-obj))
+				   ,@(alexandria:hash-table-values (sheet-style-col->style-map sheet-style-obj))
+				   ,@(alexandria:hash-table-values (sheet-style-cell->style-map sheet-style-obj)))
+		   do (progn
+			(setf (gethash style uni-style-map) t)
+			(when (style-border-style style)
+			  (setf (gethash style uni-border-style-map) t))
+			(when (style-fill-style style)
+			  (setf (gethash style uni-fill-style-map) t))
+			(when (style-number-style style)
+			  (setf (gethash style uni-number-style-map) t))
+			(when (style-font-style style)
+			  (setf (gethash style uni-font-style-map) t)))
+		      
+		      (setf (styles-styles *styles*)
+			    (remove-if-not (lambda (style) (gethash style uni-style-map nil))
+					   (styles-styles *styles*)))
+		      (setf (styles-border-list *styles*)
+			    (remove-if-not (lambda (border-style) (gethash border-style uni-border-style-map nil))
+					   (styles-border-list *styles*)))
+		      (setf (styles-font-list *styles*)
+			    (remove-if-not (lambda (font-style) (gethash font-style uni-font-style-map nil))
+					   (styles-font-list *styles*)))
+		      (stef (styles-number-list *styles*)
+			    (remove-if-not (lambda (number-style) (gethash number-style uni-number-style-map nil))
+					   (styles-number-list *styles*)))
+		      (setf (styles-fill-list *styles*)
+			    (remove-if-not (lambda (fill-style) (gethash fill-style uni-fill-style-map nil))
+					   (styles-fill-list *styles*)))))))
+
+(defun remove* (items-to-remove list &key (test #'eql))
+  "Remove all occurrences of items in ITEMS-TO-REMOVE from LIST, using TEST for comparison."
+  (remove-if (lambda (x) (member x items-to-remove :test test)) list))
+
+(defun assemble-styles ()
+  (labels ((create-fill-style (&key (pattern "none"))
+	     (make-fill-style :color "FFFFFF" :pattern pattern))
+	   (create-none-fill-style ()
+	     (create-fill-style :pattern "none"))
+	   (create-gray125-fill-style ()
+	     (create-fill-style :pattern "gray125"))
+	   (create-style (&key fill-style)
+	     (make-style :border-style nil
+			 :font-style nil
+			 :alignment-style nil
+			 :number-style nil
+			 :fill-style fill-style))
+	   (create-fill-style-none-style ()
+	     (create-style :fill-style (create-none-fill-style)))
+	   (create-fill-style-gray125-style ()
+	     (create-style :fill-style (create-gray125-fill-style)))
+	   (create-style-list ()
+	     (list (create-fill-style-none-style) (create-fill-style-gray125-style)))
+	   (create-fill-style-list ()
+	     (list (create-none-fill-style) (create-gray125-fill-style)))
+	   (create-font-style ()
+	     (make-font-style :size 10 :name "Arial" :color "000000"))
+	   (create-font-style-list ()
+	     (list (create-font-style)))
+	   (create-border-style ()
+	     (make-border-style :left-color nil :left-mode nil
+				:right-color nil :right-mode nil
+				:top-color nil :top-mode nil
+				:bottom-color nil :bottom-mode nil))
+	   (create-border-style-list ()
+	     (list (create-border-style))))
+    (setf (styles-styles *styles*)
+	  (append
+	   (create-style-list)
+	   (remove* (create-style-list)
+		    (styles-styles *styles*)
+		    :test #'equal-hash-code-p)))
+    (setf (styles-border-list *styles*)
+	  (append
+	   (create-border-style-list)
+	   (remove* (create-border-style-list)
+		    (styles-border-list *styles*)
+		    :test #'equal-hash-code-p)))
+    (setf (styles-font-list *styles*)
+	  (append
+	   (create-font-style-list)
+	   (remove* (create-font-style-list)
+		    (styles-font-list *styles*)
+		    :test #'equal-hash-code-p)))
+    (setf (styles-fill-list *styles*)
+	  (append
+	   (create-fill-style-list)
+	   (remove* (create-fill-style-list)
+		    (styles-fill-list *styles*)
+		    :test #'equal-hash-code-p)))))
+
+
+		      
+  
+;;;; xlsx/xlsx.rkt
+
+(defparameter *xlsx* nil)
+(defparameter *current-sheet* nil)
+(defparameter *current-sheet-index* nil)
+
+(defstruct xlsx
+  xlsx-dir
+  sheet-list
+  shared-string->index-map
+  shared-index->string-map
+  styles)
+
+(defmacro
 	       
   
+
+
+
+
+
+
+
+
